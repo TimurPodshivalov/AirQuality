@@ -1,3 +1,5 @@
+#Необходимо установить библиотеки: openmeteo-requests, requests-cache, retry-requests, numpy, pandas.
+
 import openmeteo_requests
 
 import pandas as pd
