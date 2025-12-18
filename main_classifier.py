@@ -12,7 +12,7 @@ df_future['date'] = pd.to_datetime(df_future['date'])
 cols = ["pm10", "pm2_5", "carbon_monoxide", "nitrogen_dioxide", 
         "sulphur_dioxide", "ozone", "dust", "uv_index"]
 
-# Заполнение пропусков
+# Заполнение пропусковФ
 for c in cols:
     median_val = df_history[c].median()
     df_history[c] = df_history[c].fillna(median_val)
@@ -22,24 +22,42 @@ for c in cols:
 stats = {col: {'median': df_history[col].median(), 'std': df_history[col].std() or 1} for col in cols}
 
 def get_dominant_source(row):
+    hour = row['date'].hour
     scores = {col: (row[col] - stats[col]['median']) / stats[col]['std'] for col in cols}
     
-    # Формулы влияния
+    # Комбинированные индикаторы
+    traffic_score = (scores["nitrogen_dioxide"] * 1.3 + 
+                    scores["carbon_monoxide"] * 0.7) / 2
+    
+    industry_score = (scores["sulphur_dioxide"] * 2.0 + 
+                     scores["nitrogen_dioxide"] * 0.5) / 2.5
+    
+    smog_score = (scores["ozone"] * 1.5 + 
+                 scores["uv_index"] * 0.8 + 
+                 scores["nitrogen_dioxide"] * 0.3) / 2.6
+    
+    dust_score = (scores["pm10"] * 1.2 + 
+                 scores["dust"] * 1.0 + 
+                 scores["pm2_5"] * 0.5) / 2.7
+    
+    burning_score = (scores["pm2_5"] * 1.5 + 
+                    scores["carbon_monoxide"] * 0.8) / 2.3
+    
     source_power = {
-        "Трафик": (scores["nitrogen_dioxide"] + scores["carbon_monoxide"]) / 2,
-        "Промзона": scores["sulphur_dioxide"] * 1.5,
-        "Смог": (scores["ozone"] + scores["uv_index"]) if row["uv_index"] > 0.5 else -10,
-        "Пыль": (scores["dust"] + scores["pm10"]) / 2,
-        "Сжигание": (scores["pm2_5"] + scores["carbon_monoxide"]) / 2.5
+        "Трафик": traffic_score * (1.5 if 7 <= hour <= 9 or 16 <= hour <= 20 else 1.0),
+        "Промзона": industry_score * (1.4 if hour <= 6 or hour >= 22 else 0.8),
+        "Смог": smog_score * (1.6 if 9 <= hour <= 17 and row["uv_index"] > 0.2 else 0.5),
+        "Пыль": dust_score * (1.3 if 11 <= hour <= 19 else 0.9),
+        "Сжигание": burning_score
     }
     
     best_source = max(source_power, key=source_power.get)
-    return best_source if source_power[best_source] > 0.3 else "Норма"
+    threshold = 0.25 if hour >= 8 and hour <= 22 else 0.15  # разный порог днем/ночью
+    return best_source if source_power[best_source] > threshold else "Норма"
 
 df_future['smart_cause'] = df_future.apply(get_dominant_source, axis=1)
 
-# ========== ВСТАВЬТЕ ЗДЕСЬ ==========
-# 3. Создаем сводную таблицу ТОЛЬКО с существующими причинами
+
 df_future['day'] = df_future['date'].dt.date
 
 # ИСКЛЮЧАЕМ ПЕРВЫЙ ДЕНЬ
